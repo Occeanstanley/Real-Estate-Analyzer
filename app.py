@@ -209,13 +209,32 @@ st.title("🏠 Real Estate Document Analyzer")
 st.caption("Upload a lease, contract, or real-estate document to extract key info, estimate value, and ask questions.")
 client = get_client()
 
+
+
 with st.sidebar:
+    # Help Section
+    st.markdown("### ℹ️ Help & Tips")
+    st.markdown(
+        """
+        - **Upload** clear PDF, DOCX, or TXT files (max 200MB).  
+        - Click **“Analyze document with AI”** to extract key fields.  
+        - **Key Information** shows structured lease data.  
+        - **Property Value Estimator** provides an AI-generated range.  
+        - Use **Ask Questions** to query the document.  
+        - Download your clean summary using **“📄 Download Lease Summary PDF.”**  
+        - If you upload a rent roll PDF, check **Extracted Tables** below results.  
+        """
+    )
+    st.markdown("---")
+
+    # Settings Section
     st.markdown("### ⚙️ Settings")
     st.write("Models used:")
     st.write("- `gpt-4o-mini` for fast extraction")
     st.write("- `gpt-4o` for reasoning & Q&A")
     st.markdown("---")
     st.info("Tip: Upload clear PDFs or DOCX leases for best results.")
+
 
 uploaded_file = st.file_uploader("Upload Document", type=["pdf", "docx", "txt"], help="Supported formats: PDF, DOCX, TXT (up to 200 MB).")
 
