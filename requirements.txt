@@ -1,4 +1,8 @@
 streamlit
+openai>=1.6.0
 pdfplumber
 python-docx
-openai
+pandas
+fpdf
+numpy
+pillow
