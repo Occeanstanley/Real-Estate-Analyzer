@@ -276,19 +276,25 @@ def estimate_property_value(
 
 def build_summary_pdf(structured: Dict[str, Any], value_estimate: Optional[str]) -> bytes:
     """Create a simple summary PDF and return its bytes."""
+
+    # Helper to ensure all text is Latin-1 safe for FPDF's core fonts
+    def to_latin1(text: Any) -> str:
+        s = str(text)
+        return s.encode("latin-1", "replace").decode("latin-1")
+
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "Lease Summary", ln=True)
+    pdf.cell(0, 10, to_latin1("Lease Summary"), ln=True)
 
     pdf.ln(4)
     pdf.set_font("Arial", "", 11)
 
     def line(label: str, key: str):
-        value = structured.get(key, "—")
-        pdf.multi_cell(0, 7, f"{label}: {value}")
+        value = structured.get(key, "-")  # use ASCII hyphen instead of em dash
+        pdf.multi_cell(0, 7, f"{to_latin1(label)}: {to_latin1(value)}")
 
     line("Property Address", "property_address")
     line("Landlord", "landlord")
@@ -307,16 +313,16 @@ def build_summary_pdf(structured: Dict[str, Any], value_estimate: Optional[str])
     if notes:
         pdf.ln(3)
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 8, "Notes", ln=True)
+        pdf.cell(0, 8, to_latin1("Notes"), ln=True)
         pdf.set_font("Arial", "", 11)
-        pdf.multi_cell(0, 7, str(notes))
+        pdf.multi_cell(0, 7, to_latin1(notes))
 
     if value_estimate:
         pdf.ln(3)
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 8, "Property Value Estimate (AI)", ln=True)
+        pdf.cell(0, 8, to_latin1("Property Value Estimate (AI)"), ln=True)
         pdf.set_font("Arial", "", 11)
-        pdf.multi_cell(0, 7, value_estimate)
+        pdf.multi_cell(0, 7, to_latin1(value_estimate))
 
     # Export as bytes
     pdf_bytes = pdf.output(dest="S").encode("latin-1")
@@ -411,7 +417,7 @@ if st.session_state.extracted_text and st.session_state.structured:
         with col:
             st.markdown(f'<div class="key-label">{label}</div>', unsafe_allow_html=True)
             st.markdown(
-                f'<div class="key-value">{structured.get(key, "—")}</div>',
+                f'<div class="key-value">{structured.get(key, "-")}</div>',
                 unsafe_allow_html=True,
             )
 
