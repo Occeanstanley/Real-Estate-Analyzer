@@ -1,32 +1,59 @@
 import streamlit as st
 import pdfplumber
-import re
-import json
-from openai import OpenAI
 from fpdf import FPDF
+from openai import OpenAI
+import io
+import re
 
 client = OpenAI()
 
-# ------------------------------
-# Helper: Safe Field Finder
-# ------------------------------
-def find_field(text, keywords):
-    for k in keywords:
-        pattern = rf"{k}[:\-]?\s*(.*)"
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-    return None
+# -------------------------------------------------------
+# Helpers
+# -------------------------------------------------------
+
+def sanitize_for_pdf(text: str) -> str:
+    """Make text safe for FPDF (latin-1)."""
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    return text.encode("latin-1", "replace").decode("latin-1")
 
 
-# ------------------------------
-# Robust JSON Extractor
-# ------------------------------
+def pretty_value(v):
+    """Format extracted dicts and lists into clean human text."""
+    if v is None:
+        return "None"
+
+    if isinstance(v, dict):
+        parts = []
+        for k, val in v.items():
+            label = k.replace("_", " ").capitalize()
+            parts.append(f"{label}: {val}")
+        return "; ".join(parts)
+
+    if isinstance(v, (list, tuple, set)):
+        return ", ".join(str(x) for x in v)
+
+    return str(v)
+
+
+def extract_text(file):
+    with pdfplumber.open(file) as pdf:
+        full = ""
+        for page in pdf.pages:
+            full += page.extract_text() + "\n"
+        return full.strip()
+
+
+# -------------------------------------------------------
+# AI Extraction
+# -------------------------------------------------------
+
 def extract_structured_data(raw_text):
-
     prompt = f"""
-Extract structured real estate information from this document.
-Return ONLY valid JSON with these fields:
+Extract key information from the following real estate document.
+Return a JSON object with these fields:
 
 - property_address
 - landlord
@@ -35,190 +62,192 @@ Return ONLY valid JSON with these fields:
 - lease_end
 - monthly_rent
 - security_deposit
-- other_fees
+- late_fee
+- utilities
+- pet_policy
 - termination_clause
+- other_fees
 - notes
 
+If a field is not present, return null.
+For 'other_fees', return a dictionary of fee_name: fee_value.
+
 Document:
-{raw_text}
+\"\"\"{raw_text}\"\"\"
 """
 
-    # Try JSON mode
-    try:
-        resp = client.responses.create(
-            model="gpt-4o-mini",
-            input=prompt,
-            response_format={"type": "json_object"}
-        )
-        return resp.output[0].content[0].parsed
-
-    except Exception:
-        # Try to read raw text and decode JSON manually
-        try:
-            raw = resp.output_text
-            return json.loads(raw)
-        except:
-            pass
-
-        # Final fallback (never crash)
-        return {
-            "property_address": find_field(raw_text, ["address", "property"]),
-            "landlord": find_field(raw_text, ["landlord", "seller", "owner"]),
-            "tenant": find_field(raw_text, ["tenant", "buyer"]),
-            "lease_start": find_field(raw_text, ["start", "commence"]),
-            "lease_end": find_field(raw_text, ["end", "terminate"]),
-            "monthly_rent": find_field(raw_text, ["rent"]),
-            "security_deposit": find_field(raw_text, ["deposit"]),
-            "other_fees": find_field(raw_text, ["fee", "charge", "earnest", "closing"]),
-            "termination_clause": find_field(raw_text, ["termination", "cancel"]),
-            "notes": ""
-        }
-
-
-# ------------------------------
-# Property Value Estimator
-# ------------------------------
-def estimate_property_value(structured):
-    prompt = f"""
-Estimate the property value (NOT an appraisal). Use rent/terms/context.
-
-Return a friendly paragraph.
-Property info: {json.dumps(structured)}
-"""
-
-    resp = client.responses.create(
-        model="gpt-4o",
-        input=prompt
+    resp = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"}
     )
-    return resp.output_text
+    return resp.choices[0].message.parsed
 
 
-# ------------------------------
-# Real Estate Agent Persona Q&A
-# ------------------------------
-def agent_persona_answer(question, structured):
+def real_estate_agent_answer(question, extracted):
     prompt = f"""
-You are a friendly Long Island real estate agent.
-Use the extracted lease/purchase agreement info:
+You are a helpful real estate agent.
+Answer the question using ONLY this document data:
 
-{json.dumps(structured, indent=2)}
+{extracted}
 
-Answer the user's question conversationally.
-Question: {question}
+User question: {question}
 """
 
-    resp = client.responses.create(model="gpt-4o", input=prompt)
-    return resp.output_text
+    resp = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return resp.choices[0].message.content
 
 
-# ------------------------------
-# PDF Summary Generator (FIXED)
-# ------------------------------
-def build_summary_pdf(structured, estimate):
+# -------------------------------------------------------
+# Property Value Estimator
+# -------------------------------------------------------
+
+def estimate_property_value(extracted):
+    address = extracted.get("property_address", "Unknown")
+    rent = extracted.get("monthly_rent")
+    size_guess = "Not provided"
+
+    prompt = f"""
+Estimate a rough property value for the property located at:
+{address}
+
+Based on:
+- Monthly Rent: {rent}
+- Size: {size_guess}
+- Market conditions typical of Long Island.
+
+Return a SHORT readable explanation in paragraphs, no JSON.
+"""
+
+    resp = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return resp.choices[0].message.content
+
+
+# -------------------------------------------------------
+# PDF Generator
+# -------------------------------------------------------
+
+def build_summary_pdf(structured, value_estimate):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
 
-    pdf.cell(0, 10, "Lease / Agreement Summary", ln=True)
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, sanitize_for_pdf("Lease Summary Report"), ln=1)
 
-    for k, v in structured.items():
-        pdf.multi_cell(0, 10, f"{k.replace('_',' ').title()}: {v}")
+    pdf.set_font("Helvetica", "", 11)
 
     pdf.ln(5)
-    pdf.multi_cell(0, 10, "Property Value Estimate:")
-    pdf.multi_cell(0, 10, estimate)
+    pdf.cell(0, 8, sanitize_for_pdf("Extracted Key Information:"), ln=1)
+
+    for key, value in structured.items():
+        line = f"{key.replace('_',' ').title()}: {pretty_value(value)}"
+        pdf.multi_cell(0, 6, sanitize_for_pdf(line))
+
+    pdf.ln(5)
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, sanitize_for_pdf("Property Value Estimate"), ln=1)
+
+    pdf.set_font("Helvetica", "", 11)
+    pdf.multi_cell(0, 6, sanitize_for_pdf(value_estimate))
 
     return pdf.output(dest="S").encode("latin-1", "replace")
 
 
-# ------------------------------
-# PDF Text Extraction + Tables
-# ------------------------------
-def extract_pdf_text_and_tables(file):
-    text = ""
-    tables = []
-
-    with pdfplumber.open(file) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-            page_tables = page.extract_tables()
-            if page_tables:
-                tables.extend(page_tables)
-
-    return text, tables
-
-
-# ------------------------------
+# -------------------------------------------------------
 # Streamlit UI
-# ------------------------------
-st.set_page_config(page_title="Real Estate Analyzer", layout="wide")
+# -------------------------------------------------------
 
-st.markdown("""
-<style>
-body { background-color: #0d1117; color: white; }
-.stMarkdown, .stText, .stHeader, .stDataFrame { color: white !important; }
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="Real Estate Document Analyzer", layout="wide")
 
-st.title("🏡 Real Estate Document Analyzer")
-st.write("Upload a lease, commercial lease, or purchase agreement.")
+st.markdown("<h1>🏡 Real Estate Document Analyzer</h1>", unsafe_allow_html=True)
+st.write("Upload a lease, contract, or purchase agreement to extract AI insights.")
 
 uploaded = st.file_uploader("Upload PDF", type=["pdf"])
 
 if uploaded:
-    st.success(f"File uploaded: {uploaded.name}")
-
-    raw_text, tables = extract_pdf_text_and_tables(uploaded)
-
-    st.subheader("📄 Extracted Text Preview")
-    st.code(raw_text[:2000] + "...")  # Show first 2000 chars only
+    raw_text = extract_text(uploaded)
+    st.subheader("📌 Extracted Text Preview")
+    st.text_area("", raw_text, height=220)
 
     if st.button("Analyze document with AI"):
-        with st.spinner("Analyzing with AI..."):
-            structured = extract_structured_data(raw_text)
+        extracted = extract_structured_data(raw_text)
+        st.success("Analysis complete!")
 
-        st.subheader("📌 Key Information")
+        # -------------------------
+        # Key Info Display
+        # -------------------------
+        st.subheader("📄 Key Information")
 
-        # Clean printing (remove dict artifacts)
-        for k, v in structured.items():
-            st.write(f"**{k.replace('_', ' ').title()}:** {v}")
-
-        # Property value estimate
-        st.subheader("📈 Property Value Estimator")
-        estimate = estimate_property_value(structured)
-        st.write(estimate)
-
-        # Tables
-        st.subheader("📊 Extracted Tables")
-        if tables:
-            for t in tables:
-                st.table(t)
-        else:
-            st.write("No tables detected.")
-
-        # Q&A
-        st.subheader("❓ Ask Questions About the Document")
         col1, col2 = st.columns(2)
+        keys_left = [
+            "property_address", "landlord", "tenant",
+            "lease_start", "lease_end", "monthly_rent",
+            "security_deposit", "notes"
+        ]
+        keys_right = [
+            "late_fee", "utilities", "pet_policy",
+            "termination_clause", "other_fees"
+        ]
+
         with col1:
-            mode = st.radio("Mode", ["Standard Q&A", "Real Estate Agent Persona"])
+            for key in keys_left:
+                st.markdown(f"**{key.replace('_',' ').title()}**")
+                st.write(pretty_value(extracted.get(key)))
 
-        question = st.text_input("Enter your question:")
-        if st.button("Answer question"):
-            with st.spinner("Thinking..."):
-                if mode == "Standard Q&A":
-                    resp = client.responses.create(
-                        model="gpt-4o",
-                        input=f"Answer based on document info: {structured}. Question: {question}"
-                    )
-                    st.write(resp.output_text)
-                else:
-                    st.write(agent_persona_answer(question, structured))
+        with col2:
+            for key in keys_right:
+                st.markdown(f"**{key.replace('_',' ').title()}**")
+                st.write(pretty_value(extracted.get(key)))
 
-        # PDF download
-        st.subheader("📥 Download Lease Summary PDF")
-        pdf_bytes = build_summary_pdf(structured, estimate)
-        st.download_button("Download Summary PDF",
-                           pdf_bytes,
-                           file_name="lease_summary.pdf",
-                           mime="application/pdf")
+        # -------------------------
+        # Property Value Estimator
+        # -------------------------
+        st.subheader("📊 Property Value Estimator")
+        value_estimate = estimate_property_value(extracted)
+        st.write(value_estimate)
+
+        # -------------------------
+        # PDF Download
+        # -------------------------
+        st.subheader("📄 Download Lease Summary PDF")
+        pdf_bytes = build_summary_pdf(extracted, value_estimate)
+        st.download_button(
+            "Download Summary PDF",
+            data=pdf_bytes,
+            file_name="lease_summary.pdf",
+            mime="application/pdf"
+        )
+
+        # -------------------------
+        # Q&A — Standard + Agent Persona
+        # -------------------------
+        st.subheader("💬 Ask Questions About the Document")
+
+        tab1, tab2 = st.tabs(["Standard Q&A", "Real Estate Agent Persona"])
+
+        with tab1:
+            q = st.text_input("Ask a question:")
+            if st.button("Answer question"):
+                resp = real_estate_agent_answer(q, extracted)
+                st.write(resp)
+
+        with tab2:
+            q2 = st.text_input("Ask the agent:")
+            if st.button("Agent answer"):
+                resp = real_estate_agent_answer(q2, extracted)
+                st.write(resp)
+
+        # -------------------------
+        # Table Extraction (future)
+        # -------------------------
+        st.subheader("📑 Extracted Tables (from PDF)")
+        st.write("No clear tables were detected, but this feature can be expanded.")
