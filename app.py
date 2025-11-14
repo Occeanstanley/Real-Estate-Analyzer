@@ -21,12 +21,13 @@ st.set_page_config(
 
 CUSTOM_CSS = """
 <style>
-/* Overall background */
+/* Overall dark ocean background */
 .stApp {
-    background-color: #f5f5f7;
+    background-color: #020617; /* slate-950 */
+    color: #e5e7eb;
 }
 
-/* Main container card look */
+/* Main container */
 .block-container {
     padding-top: 1.5rem;
     padding-bottom: 2rem;
@@ -34,24 +35,25 @@ CUSTOM_CSS = """
 
 /* Section cards */
 .card {
-    background-color: #ffffff;
-    border-radius: 12px;
+    background-color: #020617; /* deep dark */
+    border-radius: 16px;
     padding: 18px 20px;
     margin-bottom: 16px;
-    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.25);
 }
 
 /* Section titles */
 .section-title {
     font-weight: 700;
     font-size: 1.1rem;
-    color: #111827;
+    color: #e5e7eb;
     margin-bottom: 0.3rem;
 }
 
 /* Muted helper text */
 .helper-text {
-    color: #6b7280;
+    color: #9ca3af;
     font-size: 0.9rem;
 }
 
@@ -59,34 +61,56 @@ CUSTOM_CSS = """
 .key-label {
     font-size: 0.9rem;
     font-weight: 600;
-    color: #4b5563;
+    color: #9ca3af;
+    margin-bottom: 0.1rem;
 }
 
 /* Key info values */
 .key-value {
     font-size: 0.95rem;
     font-weight: 500;
-    color: #111827;
+    color: #e5e7eb;
+    white-space: pre-line; /* so multi-line dict/list formatting looks nice */
 }
 
 /* Make text areas more readable */
 textarea[aria-label="Extracted Text Preview"] {
     font-size: 0.85rem !important;
     line-height: 1.4 !important;
+    background-color: #020617 !important;
+    color: #e5e7eb !important;
+    border-radius: 10px !important;
+    border: 1px solid #1f2937 !important;
 }
 
 /* Buttons */
 .stButton > button {
     border-radius: 999px;
-    border: 1px solid #e5e7eb;
-    background: linear-gradient(90deg, #2563eb, #1d4ed8);
+    border: 1px solid #0ea5e9;
+    background: linear-gradient(90deg, #0ea5e9, #2563eb);
     color: white;
     font-weight: 600;
+    padding: 0.4rem 1.1rem;
 }
 
 /* Secondary buttons (download, etc.) */
 button[kind="secondary"] {
     border-radius: 999px !important;
+}
+
+/* Tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0.25rem;
+}
+.stTabs [data-baseweb="tab"] {
+    background-color: #020617;
+    border-radius: 999px;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    border: 1px solid #1f2937;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    border-color: #0ea5e9;
 }
 </style>
 """
@@ -146,6 +170,44 @@ def extract_tables_from_pdf(uploaded_file) -> List[pd.DataFrame]:
                 df = pd.DataFrame(t[1:], columns=t[0])
                 dfs.append(df)
     return dfs
+
+
+# ---------------------- Value Normalization Helpers ---------------------- #
+
+def normalize_value_for_display(v: Any) -> str:
+    """
+    Turn nested dicts/lists into nice human-readable text,
+    instead of Python-looking {...} with quotes.
+    """
+    if v is None:
+        return "—"
+
+    # Dict -> each key/value on its own line
+    if isinstance(v, dict):
+        parts = []
+        for k, val in v.items():
+            label = k.replace("_", " ").replace("-", " ").title()
+            parts.append(f"{label}: {val}")
+        return "\n".join(parts) if parts else "—"
+
+    # List -> lines
+    if isinstance(v, list):
+        parts = []
+        for item in v:
+            parts.append(normalize_value_for_display(item))
+        return "\n".join(parts) if parts else "—"
+
+    return str(v)
+
+
+def normalize_value_for_pdf(v: Any) -> str:
+    """
+    Same as display normalization, but also strips out characters that
+    classic FPDF cannot encode (non Latin-1), to prevent Unicode errors.
+    """
+    text = normalize_value_for_display(v)
+    # Keep only characters encodable in latin-1
+    return text.encode("latin-1", errors="ignore").decode("latin-1")
 
 
 # ---------------------- LLM Helpers ---------------------- #
@@ -275,19 +337,20 @@ def estimate_property_value(
 # ---------------------- PDF Summary Generation ---------------------- #
 
 def build_summary_pdf(structured: Dict[str, Any], value_estimate: Optional[str]) -> bytes:
-    """Create a simple summary PDF and return its bytes."""
+    """Create a simple summary PDF and return its bytes (Unicode-safe via sanitization)."""
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "Lease Summary", ln=True)
+    title_text = normalize_value_for_pdf("Lease Summary")
+    pdf.cell(0, 10, title_text, ln=True)
 
     pdf.ln(4)
     pdf.set_font("Arial", "", 11)
 
     def line(label: str, key: str):
-        value = structured.get(key, "—")
+        value = normalize_value_for_pdf(structured.get(key))
         pdf.multi_cell(0, 7, f"{label}: {value}")
 
     line("Property Address", "property_address")
@@ -307,19 +370,20 @@ def build_summary_pdf(structured: Dict[str, Any], value_estimate: Optional[str])
     if notes:
         pdf.ln(3)
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 8, "Notes", ln=True)
+        pdf.cell(0, 8, normalize_value_for_pdf("Notes"), ln=True)
         pdf.set_font("Arial", "", 11)
-        pdf.multi_cell(0, 7, str(notes))
+        pdf.multi_cell(0, 7, normalize_value_for_pdf(notes))
 
     if value_estimate:
         pdf.ln(3)
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 8, "Property Value Estimate (AI)", ln=True)
+        pdf.cell(0, 8, normalize_value_for_pdf("Property Value Estimate (AI)"), ln=True)
         pdf.set_font("Arial", "", 11)
-        pdf.multi_cell(0, 7, value_estimate)
+        pdf.multi_cell(0, 7, normalize_value_for_pdf(value_estimate))
 
-    # Export as bytes
-    pdf_bytes = pdf.output(dest="S").encode("latin-1")
+    # Export as bytes; ignore any remaining problematic chars just in case
+    pdf_str = pdf.output(dest="S")
+    pdf_bytes = pdf_str.encode("latin-1", errors="ignore")
     return pdf_bytes
 
 
@@ -397,7 +461,7 @@ if st.session_state.extracted_text and st.session_state.structured:
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # --------- Key Information (Clean JSON, no ```json) --------- #
+    # --------- Key Information (Clean, no dict braces) --------- #
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">🧾 Key Information</div>', unsafe_allow_html=True)
     st.markdown(
@@ -408,10 +472,11 @@ if st.session_state.extracted_text and st.session_state.structured:
     col1, col2 = st.columns(2)
 
     def show_field(col, label, key):
+        value = normalize_value_for_display(structured.get(key))
         with col:
             st.markdown(f'<div class="key-label">{label}</div>', unsafe_allow_html=True)
             st.markdown(
-                f'<div class="key-value">{structured.get(key, "—")}</div>',
+                f'<div class="key-value">{value}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -431,7 +496,7 @@ if st.session_state.extracted_text and st.session_state.structured:
 
     if structured.get("notes"):
         st.markdown("**Notes:**")
-        st.write(structured["notes"])
+        st.write(normalize_value_for_display(structured["notes"]))
 
     with st.expander("View raw JSON"):
         st.json(structured)
