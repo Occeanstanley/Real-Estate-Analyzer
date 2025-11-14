@@ -414,7 +414,9 @@ if st.session_state.extracted_text and st.session_state.structured:
     col1, col2 = st.columns(2)
 
     
+
 def format_display_value(val):
+    """Format dicts/lists/values nicely for display."""
     if not val or val == "None":
         return None
     if isinstance(val, dict):
@@ -428,7 +430,9 @@ def format_display_value(val):
         return "<br>".join(f"• {str(x)}" for x in val)
     return str(val)
 
+
 def show_field(col, label, key):
+    """Display only non-empty structured fields, formatted nicely."""
     value = structured.get(key)
     display = format_display_value(value)
     if display:
@@ -436,9 +440,14 @@ def show_field(col, label, key):
             st.markdown(f'<div class="key-label">{label}</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="key-value">{display}</div>', unsafe_allow_html=True)
 
-f'<div class="key-value">{structured.get(key, "-")}</div>',
-                unsafe_allow_html=True,
-            )
+    value = structured.get(key)
+    display = format_display_value(value)
+    if display:
+        with col:
+            st.markdown(f'<div class="key-label">{label}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="key-value">{display}</div>', unsafe_allow_html=True)
+
+
 
     show_field(col1, "Property Address", "property_address")
     show_field(col1, "Landlord", "landlord")
