@@ -1,57 +1,54 @@
-# 🏡 Real Estate Document Analyzer
+# 🏠 Real Estate Document Analyzer
 
-A smart AI-powered tool that extracts key information from **leases, rental agreements, commercial leases, and purchase agreements**.  
-Built with **Streamlit + GPT-4o**, it turns messy PDFs into clean structured data.
+**Real Estate Document Analyzer** is an AI-powered Streamlit web app that helps users automatically extract, summarize, and understand key information from real estate documents — such as leases, purchase agreements, and contracts.
 
-## ✨ Features
-
-### 🔍 Document Extraction
-- Upload **PDF leases / contracts / purchase agreements**
-- AI extracts:
-  - Property address  
-  - Landlord / Tenant  
-  - Lease dates  
-  - Rent + Deposits  
-  - Fees (CAM charges, earnest deposits, etc.)  
-  - Utilities, pet policy, late fees  
-  - Termination clauses  
-  - Notes + addenda  
-
-### 🤖 Smart Real Estate AI
-- **Standard Q&A** about the document  
-- **Real Estate Agent Persona** for friendly explanations  
-- Clean formatting (no JSON chunks shown to users)
-
-### 📊 Property Value Estimator
-- High-level AI estimate based on:
-  - Rent  
-  - Area (inferred from text)  
-  - Long Island / NYC surrounding market logic  
-
-### 📄 Downloadable PDF Summary
-- Auto-generated **Lease Summary PDF**
-- Fully Unicode-safe (no more errors from special characters)
-
-### 📑 Table Extraction (beta)
-- Detects tables like:
-  - Rent roll  
-  - Fee schedules  
-  - Closing cost lines
+Built with **OpenAI GPT-4o models**, it can analyze text, estimate property values, and even answer natural-language questions about uploaded documents.
 
 ---
 
-## 🚀 Technology Used
+## 🚀 Features
 
-- **Streamlit**
-- **OpenAI GPT-4o & GPT-4o-mini**
-- **PDFPlumber** (PDF text extraction)
-- **FPDF** (PDF builder)
-- **Python 3.9+**
+### 🔍 Document Analysis
+- Upload and analyze **PDF**, **DOCX**, or **TXT** files (up to 200 MB)
+- Automatically extract structured key fields:
+  - Property address
+  - Landlord / tenant names
+  - Lease start & end dates
+  - Rent, deposits, late fees
+  - Utilities, pet policies, termination clauses, etc.
+- Works with both residential and commercial real-estate documents
+
+### 🧾 Clean Key Information Display
+- Displays fields in a clear, readable layout  
+- Hides empty or “None” values  
+- Formats nested data like utilities or fees into labeled text
+
+### 🏡 Property Value Estimator
+- Uses AI to generate a **rough market value estimate**
+- Comments on rent competitiveness and influencing factors
+
+### 💬 Smart Q&A
+- Ask natural-language questions about the uploaded document  
+- Two modes:
+  - **Standard Q&A:** factual and concise
+  - **Agent Persona:** “Alex Morgan,” a friendly New York real-estate agent
+
+### 📄 PDF Summary Export
+- Download a **Lease Summary PDF** with all extracted fields and AI notes  
+- Fully Unicode-safe output for international text
+
+### 🧮 Table Extraction
+- Detects and extracts tabular data (e.g., rent rolls, fee schedules) from PDFs  
+- Displays them directly as editable dataframes
+
+### 🧠 Built-in Help & Tips
+- Quick sidebar guide for users on how to upload, analyze, and export results
 
 ---
 
-## ⚙️ Installation
+## ⚙️ Installation & Setup
 
+### 1️⃣ Clone the repository
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+git clone https://github.com/yourusername/real-estate-analyzer.git
+cd real-estate-analyzer
