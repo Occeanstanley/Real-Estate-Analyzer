@@ -413,11 +413,30 @@ if st.session_state.extracted_text and st.session_state.structured:
 
     col1, col2 = st.columns(2)
 
-    def show_field(col, label, key):
+    
+def format_display_value(val):
+    if not val or val == "None":
+        return None
+    if isinstance(val, dict):
+        lines = []
+        for k, v in val.items():
+            if isinstance(v, list):
+                v = ", ".join(str(x) for x in v)
+            lines.append(f"**{k.replace('_', ' ').title()}**: {v}")
+        return "<br>".join(lines)
+    if isinstance(val, list):
+        return "<br>".join(f"• {str(x)}" for x in val)
+    return str(val)
+
+def show_field(col, label, key):
+    value = structured.get(key)
+    display = format_display_value(value)
+    if display:
         with col:
             st.markdown(f'<div class="key-label">{label}</div>', unsafe_allow_html=True)
-            st.markdown(
-                f'<div class="key-value">{structured.get(key, "-")}</div>',
+            st.markdown(f'<div class="key-value">{display}</div>', unsafe_allow_html=True)
+
+f'<div class="key-value">{structured.get(key, "-")}</div>',
                 unsafe_allow_html=True,
             )
 
